@@ -736,11 +736,10 @@ EOF
         warn "Open Guake Preferences manually to set theme/font/hotkey."
       fi
 
-      # Add Guake to autostart
+      # Add Guake to autostart (hidden, no window)
       AUTOSTART_DIR="$HOME/.config/autostart"
       mkdir -p "$AUTOSTART_DIR"
-      if [ ! -f "$AUTOSTART_DIR/guake.desktop" ]; then
-        cat > "$AUTOSTART_DIR/guake.desktop" << 'EOF'
+      cat > "$AUTOSTART_DIR/guake.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Guake Terminal
@@ -751,8 +750,23 @@ Terminal=false
 Categories=System;TerminalEmulator;
 X-GNOME-Autostart-enabled=true
 StartupNotify=false
+NoDisplay=true
 EOF
-        info "Guake added to autostart"
+      info "Guake added to autostart"
+
+      # Start Guake now in background (hidden, detached from this terminal)
+      if ! pgrep -x guake &>/dev/null; then
+        info "Starting Guake in background..."
+        setsid guake &>/dev/null 2>&1 &
+        disown 2>/dev/null
+        sleep 2
+        # Hide it immediately so it doesn't steal focus
+        if command -v guake &>/dev/null; then
+          guake --hide &>/dev/null 2>&1 || true
+        fi
+        info "Guake running — press F12 to toggle"
+      else
+        info "Guake already running"
       fi
 
     else
