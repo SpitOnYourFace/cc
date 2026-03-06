@@ -260,6 +260,17 @@ if ($git) {
     Warn "git not found — cannot install Zsh plugins. Install Git first."
 }
 
+# Create .zshenv (runs BEFORE /etc/profile — suppresses bash git-completion error)
+$zshenv = Join-Path $env:USERPROFILE ".zshenv"
+if (-not (Test-Path $zshenv)) {
+    $zshenvContent = @'
+# Prevent Git for Windows from sourcing git-completion.bash in Zsh
+export WINELOADERNOEXEC=1
+'@
+    [System.IO.File]::WriteAllText($zshenv, $zshenvContent, (New-Object System.Text.UTF8Encoding $false))
+    Info "Created .zshenv (suppresses bash-only git-completion error)"
+}
+
 # Create .zshrc
 $zshrc = Join-Path $env:USERPROFILE ".zshrc"
 if (-not (Test-Path $zshrc) -or (Get-Content $zshrc -Raw) -notmatch "zsh-autosuggestions") {
