@@ -700,23 +700,41 @@ EOF
         # Older Guake uses /apps/guake/ too but with slightly different keys
         GUAKE_PREFIX="/apps/guake"
 
-        # Hotkey: Super + ` (grave)
-        dconf write "$GUAKE_PREFIX/keybindings/global/show-hide" "'<Super>grave'" 2>/dev/null || true
+        # Disable Guake's own hotkey (doesn't work on Wayland)
+        dconf write "$GUAKE_PREFIX/keybindings/global/show-hide" "'disabled'" 2>/dev/null || true
 
-        # On Wayland, Super+` may not work as a global hotkey
-        if $IS_WAYLAND; then
-          warn "Wayland detected — Super+\` may not work as global hotkey."
-          warn "Workarounds:"
-          warn "  1. GNOME: Install 'Guake Toggle' extension from extensions.gnome.org"
-          warn "  2. Use gsettings custom keybinding:"
-          warn "     gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/ name 'Guake'"
-          warn "     gsettings set ... command 'guake-toggle'"
-          warn "     gsettings set ... binding '<Super>grave'"
-          warn "  3. Switch Guake to use F12 instead (works on Wayland)"
+        # Register Super+` through GNOME's custom keybinding system (works on both X11 and Wayland)
+        if command -v gsettings &>/dev/null; then
+          BINDING_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/guake-toggle/"
+          BINDING_KEY="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$BINDING_PATH"
 
-          # Also set F12 as fallback on Wayland
-          dconf write "$GUAKE_PREFIX/keybindings/global/show-hide" "'F12'" 2>/dev/null || true
-          info "  Set hotkey to F12 as Wayland-safe fallback"
+          # Find guake-toggle command
+          GUAKE_TOGGLE="guake-toggle"
+          if ! command -v guake-toggle &>/dev/null; then
+            GUAKE_TOGGLE="guake -t"
+          fi
+
+          gsettings set "$BINDING_KEY" name "'Guake Toggle'" 2>/dev/null || true
+          gsettings set "$BINDING_KEY" command "'$GUAKE_TOGGLE'" 2>/dev/null || true
+          gsettings set "$BINDING_KEY" binding "'<Super>grave'" 2>/dev/null || true
+
+          # Add our binding to the list of custom keybindings
+          EXISTING=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings 2>/dev/null || echo "[]")
+          if echo "$EXISTING" | grep -q "guake-toggle"; then
+            info "GNOME keybinding already registered"
+          else
+            # Append our path to the list
+            if [ "$EXISTING" = "@as []" ] || [ "$EXISTING" = "[]" ]; then
+              NEW_LIST="['$BINDING_PATH']"
+            else
+              # Remove trailing ] and append
+              NEW_LIST=$(echo "$EXISTING" | sed "s|]|, '$BINDING_PATH']|")
+            fi
+            gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "$NEW_LIST" 2>/dev/null || true
+          fi
+          info "Registered Super+\` via GNOME custom keybinding"
+        else
+          warn "gsettings not found — set Super+\` manually in Settings > Keyboard > Shortcuts"
         fi
 
         # Font
@@ -743,11 +761,7 @@ EOF
         dconf write "$GUAKE_PREFIX/style/background/color" "'#1A1A15151010'" 2>/dev/null || true
 
         info "Guake configured:"
-        if $IS_WAYLAND; then
-          info "  - Hotkey: F12 (Wayland-safe)"
-        else
-          info "  - Hotkey: Super + \` (backtick)"
-        fi
+        info "  - Hotkey: Super + \` (via GNOME keybinding)"
         info "  - Color scheme: Desert Storm"
         info "  - Font: CaskaydiaCove NFM 11"
         info "  - 90% opacity, no scrollbar"
@@ -805,8 +819,6 @@ if $IS_LINUX && $HAS_DISPLAY; then
     echo "    - Scratchpad instructions for $DE"
   elif $IS_KDE; then
     echo "    - Yakuake dropdown terminal (F12)"
-  elif $IS_WAYLAND; then
-    echo "    - Guake dropdown terminal (F12)"
   else
     echo "    - Guake dropdown terminal (Super + \`)"
   fi
