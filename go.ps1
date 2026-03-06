@@ -1,7 +1,5 @@
 # Claude Code + Quake Console — Quick Setup (Windows)
-# Run: irm <GIST_RAW_URL> | iex
-#Requires -Version 5.1
-$ErrorActionPreference = "Stop"
+# Run: irm https://raw.githubusercontent.com/SpitOnYourFace/cc/master/go.ps1 | iex
 
 function Info($msg)  { Write-Host "[OK] $msg" -ForegroundColor Green }
 function Warn($msg)  { Write-Host "[!]  $msg" -ForegroundColor Yellow }
@@ -13,87 +11,165 @@ Write-Host "   Claude Code + Quake Console Setup" -ForegroundColor Cyan
 Write-Host "=======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ─── 1. Git Bash ───────────────────────────────────────────
+# ─── 0. Admin check ───────────────────────────────────────
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Warn "Not running as Admin. Some installs may need elevation."
+    Warn "If installs fail, right-click PowerShell > 'Run as Administrator' and re-run."
+    Write-Host ""
+}
+
+# ─── 1. Check winget ──────────────────────────────────────
+$hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+if (-not $hasWinget) {
+    Warn "winget not found. You'll need to install dependencies manually."
+    Warn "Get winget: https://aka.ms/getwinget"
+}
+
+# ─── 2. Git + Git Bash ────────────────────────────────────
 $gitBash = "C:\Program Files\Git\bin\bash.exe"
 if (Test-Path $gitBash) {
     Info "Git Bash found"
 } else {
-    Warn "Git Bash not found. Installing via winget..."
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        winget install Git.Git --accept-package-agreements --accept-source-agreements
-        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
-                     [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        if (Test-Path $gitBash) { Info "Git Bash installed" }
-        else { Warn "Git installed — you may need to restart terminal" }
+    if ($hasWinget) {
+        Warn "Git not found. Installing..."
+        try {
+            winget install Git.Git --accept-package-agreements --accept-source-agreements --silent | Out-Null
+            # Refresh PATH so we can detect it
+            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                         [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            if (Test-Path $gitBash) { Info "Git Bash installed" }
+            else { Warn "Git installed but may need terminal restart to detect Git Bash" }
+        } catch {
+            Warn "Git install failed. Install manually: https://git-scm.com"
+        }
     } else {
-        Warn "Install Git from https://git-scm.com then re-run for Git Bash profile"
+        Warn "Install Git manually: https://git-scm.com"
     }
 }
 
-# ─── 2. Node.js ───────────────────────────────────────────
+# ─── 3. Node.js ───────────────────────────────────────────
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     $nodeVer = & node -v
-    Info "Node.js found: $nodeVer"
     $major = [int]($nodeVer -replace 'v' -split '\.')[0]
     if ($major -lt 18) {
         Fail "Node.js 18+ required (you have $nodeVer). Update: https://nodejs.org"
     }
+    Info "Node.js found: $nodeVer"
 } else {
-    Warn "Node.js not found. Installing via winget..."
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
-                     [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        $node = Get-Command node -ErrorAction SilentlyContinue
-        if (-not $node) {
-            Fail "Node.js installed but not in PATH. Restart terminal and re-run."
+    if ($hasWinget) {
+        Warn "Node.js not found. Installing..."
+        try {
+            winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent | Out-Null
+            # Refresh PATH
+            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                         [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            $node = Get-Command node -ErrorAction SilentlyContinue
+            if ($node) {
+                Info "Node.js installed: $(node -v)"
+            } else {
+                Fail "Node.js installed but not in PATH. Close this terminal, open a new one, and re-run the script."
+            }
+        } catch {
+            Fail "Node.js install failed. Install manually: https://nodejs.org"
         }
-        Info "Node.js installed: $(node -v)"
     } else {
         Fail "Install Node.js 18+ from https://nodejs.org then re-run."
     }
 }
 
-# ─── 3. npm check ─────────────────────────────────────────
+# ─── 4. npm check ─────────────────────────────────────────
 $npm = Get-Command npm -ErrorAction SilentlyContinue
 if (-not $npm) { Fail "npm not found. Reinstall Node.js: https://nodejs.org" }
 Info "npm found: $(npm -v)"
 
-# ─── 4. Install Nerd Font (CaskaydiaCove) ─────────────────
-$fontName = "CaskaydiaCove NFM"
-$fontInstalled = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" -ErrorAction SilentlyContinue).PSObject.Properties |
-    Where-Object { $_.Value -like "*CaskaydiaCove*" }
-if ($fontInstalled) {
+# ─── 5. Install Nerd Font (CaskaydiaCove) ─────────────────
+$fontCheck = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" -ErrorAction SilentlyContinue).PSObject.Properties |
+    Where-Object { $_.Name -like "*Caskaydia*" -or $_.Name -like "*CascadiaCode*Nerd*" }
+# Also check user-installed fonts
+if (-not $fontCheck) {
+    $fontCheck = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" -ErrorAction SilentlyContinue).PSObject.Properties |
+        Where-Object { $_.Name -like "*Caskaydia*" -or $_.Name -like "*CascadiaCode*Nerd*" }
+}
+
+if ($fontCheck) {
     Info "CaskaydiaCove Nerd Font found"
 } else {
     Warn "Installing CaskaydiaCove Nerd Font..."
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        winget install Nerdfont.CascadiaCode --accept-package-agreements --accept-source-agreements 2>$null
-        if ($?) { Info "CaskaydiaCove Nerd Font installed" }
-        else { Warn "Font install failed — download from: https://www.nerdfonts.com/font-downloads" }
-    } else {
-        Warn "Download CaskaydiaCove Nerd Font from: https://www.nerdfonts.com/font-downloads"
+    try {
+        $fontZipUrl = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/CascadiaCode.zip"
+        $tempZip = Join-Path $env:TEMP "CascadiaCode-NF.zip"
+        $tempExtract = Join-Path $env:TEMP "CascadiaCode-NF"
+
+        # Download
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $fontZipUrl -OutFile $tempZip -UseBasicParsing
+
+        # Extract
+        if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
+        Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
+
+        # Install fonts (only the Mono variants we need)
+        $shellApp = New-Object -ComObject Shell.Application
+        $fontsFolder = $shellApp.Namespace(0x14) # Windows Fonts folder
+        $installed = 0
+        Get-ChildItem "$tempExtract\*.ttf" | Where-Object { $_.Name -like "*CaskaydiaCoveNerdFontMono*" -or $_.Name -like "*CaskaydiaCoveNFM*" } | ForEach-Object {
+            $fontsFolder.CopyHere($_.FullName, 0x14) # 0x14 = no prompt + yes to all
+            $installed++
+        }
+        # If no mono variants found, install all ttf files
+        if ($installed -eq 0) {
+            Get-ChildItem "$tempExtract\*.ttf" | ForEach-Object {
+                $fontsFolder.CopyHere($_.FullName, 0x14)
+                $installed++
+            }
+        }
+
+        # Cleanup
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+
+        if ($installed -gt 0) { Info "CaskaydiaCove Nerd Font installed ($installed files)" }
+        else { Warn "Font extraction found no .ttf files" }
+    } catch {
+        Warn "Font auto-install failed: $_"
+        Warn "Download manually: https://www.nerdfonts.com/font-downloads (search CaskaydiaCove)"
     }
 }
 
-# ─── 5. Install Claude Code ───────────────────────────────
+# ─── 6. Install Claude Code ───────────────────────────────
 $claude = Get-Command claude -ErrorAction SilentlyContinue
 if ($claude) {
     Info "Claude Code already installed, updating..."
-    npm update -g @anthropic-ai/claude-code
+    npm update -g @anthropic-ai/claude-code 2>&1 | Out-Null
 } else {
     Info "Installing Claude Code..."
-    npm install -g @anthropic-ai/claude-code
+    npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null
 }
-$ver = & claude --version 2>$null
-if ($ver) { Info "Claude Code installed: $ver" }
-else { Info "Claude Code installed" }
 
-# ─── 6. Claude config directory + startup ──────────────────
+# Refresh PATH so we can find claude after npm install
+$npmGlobalBin = & npm config get prefix 2>$null
+if ($npmGlobalBin) {
+    $env:PATH = "$npmGlobalBin;$env:PATH"
+}
+# Also add the standard npm global path
+$npmAppData = Join-Path $env:APPDATA "npm"
+if (Test-Path $npmAppData) {
+    $env:PATH = "$npmAppData;$env:PATH"
+}
+
+$claude = Get-Command claude -ErrorAction SilentlyContinue
+if ($claude) {
+    $ver = & claude --version 2>$null
+    if ($ver) { Info "Claude Code ready: $ver" }
+    else { Info "Claude Code installed" }
+} else {
+    Warn "Claude Code installed but 'claude' not found in PATH."
+    Warn "Close this terminal, open a new one, then run: claude"
+}
+
+# ─── 7. Claude config directory + startup ──────────────────
 $claudeDir = Join-Path $env:USERPROFILE ".claude"
 if (-not (Test-Path $claudeDir)) {
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
@@ -105,13 +181,13 @@ $startBat = Join-Path $claudeDir "start-claude.bat"
 @echo off
 cd /d "%USERPROFILE%"
 claude
-"@ | Out-File -FilePath $startBat -Encoding ASCII
+"@ | Out-File -FilePath $startBat -Encoding ASCII -NoNewline
 Info "Created start-claude.bat"
 
 # Create CLAUDE.md preferences (no secrets)
 $claudeMd = Join-Path $claudeDir "CLAUDE.md"
 if (-not (Test-Path $claudeMd)) {
-    @"
+    $mdContent = @"
 # Global Claude Code Preferences
 
 ## General Code Style
@@ -130,36 +206,66 @@ if (-not (Test-Path $claudeMd)) {
 - Arrow functions for callbacks
 - async/await over raw promises
 - Template literals over concatenation
-"@ | Out-File -FilePath $claudeMd -Encoding UTF8
+"@
+    # Write without BOM (clean UTF-8)
+    [System.IO.File]::WriteAllText($claudeMd, $mdContent, (New-Object System.Text.UTF8Encoding $false))
     Info "Created CLAUDE.md preferences"
 } else {
     Info "CLAUDE.md already exists, keeping yours"
 }
 
-# ─── 7. Windows Terminal — Quake Console Setup ─────────────
-$wtSettingsPath = Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json"
-$wtInstalled = Test-Path (Split-Path $wtSettingsPath)
+# ─── 8. Windows Terminal — Quake Console Setup ─────────────
+# Check both Store and non-Store paths for Windows Terminal
+$wtPaths = @(
+    (Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState"),
+    (Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal")
+)
+$wtSettingsDir = $null
+foreach ($p in $wtPaths) {
+    if (Test-Path $p) { $wtSettingsDir = $p; break }
+}
 
-if (-not $wtInstalled) {
-    Warn "Windows Terminal not found. Installing..."
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        winget install Microsoft.WindowsTerminal --accept-package-agreements --accept-source-agreements
-        Start-Sleep -Seconds 3
-        $wtInstalled = Test-Path (Split-Path $wtSettingsPath)
-        if ($wtInstalled) { Info "Windows Terminal installed" }
-        else { Warn "Windows Terminal installed — restart may be needed" }
+if (-not $wtSettingsDir) {
+    # Windows Terminal not installed or never launched
+    if ($hasWinget) {
+        Warn "Windows Terminal not found. Installing..."
+        try {
+            winget install Microsoft.WindowsTerminal --accept-package-agreements --accept-source-agreements --silent | Out-Null
+            Start-Sleep -Seconds 5
+
+            # After install, try to launch WT briefly to create settings dir, then close it
+            $wtExe = Get-Command wt -ErrorAction SilentlyContinue
+            if ($wtExe) {
+                Start-Process wt -ArgumentList "--help" -WindowStyle Hidden -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+                # Check again
+                foreach ($p in $wtPaths) {
+                    if (Test-Path $p) { $wtSettingsDir = $p; break }
+                }
+            }
+
+            if (-not $wtSettingsDir) {
+                # Create the expected directory manually
+                $wtSettingsDir = $wtPaths[0]
+                New-Item -ItemType Directory -Path $wtSettingsDir -Force | Out-Null
+            }
+            Info "Windows Terminal installed"
+        } catch {
+            Warn "Windows Terminal install failed. Install from Microsoft Store."
+        }
     } else {
-        Warn "Install Windows Terminal from Microsoft Store"
+        Warn "Install Windows Terminal from Microsoft Store, then re-run."
     }
 }
 
-if ($wtInstalled) {
+if ($wtSettingsDir) {
+    $wtSettingsPath = Join-Path $wtSettingsDir "settings.json"
+
     # Back up existing settings
     if (Test-Path $wtSettingsPath) {
         $backup = "$wtSettingsPath.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
         Copy-Item $wtSettingsPath $backup
-        Info "Backed up existing WT settings to $backup"
+        Info "Backed up existing WT settings"
     }
 
     $wtSettings = @'
@@ -264,9 +370,10 @@ if ($wtInstalled) {
     "themes": []
 }
 '@
-
-    $wtSettings | Out-File -FilePath $wtSettingsPath -Encoding UTF8
-    Info "Windows Terminal configured with Quake Mode (Win + ``)"
+    # Write without BOM (WT can choke on BOM in some versions)
+    [System.IO.File]::WriteAllText($wtSettingsPath, $wtSettings, (New-Object System.Text.UTF8Encoding $false))
+    Info "Windows Terminal configured:"
+    Info "  - Win + ``  = Quake dropdown console"
     Info "  - Default profile: Git Bash"
     Info "  - Color scheme: Desert Storm"
     Info "  - Font: CaskaydiaCove NFM"
@@ -286,5 +393,9 @@ Write-Host "    - Claude Code profile in terminal" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Next: Run 'claude' to log in (OAuth)" -ForegroundColor Yellow
 Write-Host "  No API keys or secrets stored." -ForegroundColor Gray
+Write-Host ""
+if (-not $isAdmin) {
+    Write-Host "  TIP: If something didn't install, re-run as Admin." -ForegroundColor Yellow
+}
 Write-Host "=======================================" -ForegroundColor Cyan
 Write-Host ""
