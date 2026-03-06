@@ -437,6 +437,9 @@ if ($wtSettingsDir) {
         { "id": "User.splitPane.A6751878", "keys": "alt+shift+d" }
     ],
     "launchMode": "default",
+    "startOnUserLogin": true,
+    "minimizeToNotificationArea": true,
+    "alwaysShowNotificationIcon": true,
     "newTabMenu": [ { "type": "remainingProfiles" } ],
     "profiles":
     {
@@ -449,7 +452,7 @@ if ($wtSettingsDir) {
             "padding": "8, 8, 8, 8",
             "scrollbarState": "hidden",
             "useAcrylic": false,
-            "useAtlasEngine": true
+            "useAtlasEngine": false
         },
         "list":
         [
@@ -521,6 +524,17 @@ if ($wtSettingsDir) {
     Info "  - Color scheme: Desert Storm"
     Info "  - Font: CaskaydiaCove NFM"
     Info "  - Claude Code profile added"
+
+    # Launch WT in background so Win+` works immediately (no reboot needed)
+    $wtProcess = Get-Process WindowsTerminal -ErrorAction SilentlyContinue
+    if (-not $wtProcess) {
+        Info "Starting Windows Terminal in background..."
+        Start-Process wt -WindowStyle Hidden -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Info "Windows Terminal running — press Win + `` to toggle Quake console"
+    } else {
+        Info "Windows Terminal already running — Win + `` ready"
+    }
 }
 
 # ─── Done ──────────────────────────────────────────────────
