@@ -169,7 +169,139 @@ if ($claude) {
     Warn "Close this terminal, open a new one, then run: claude"
 }
 
-# ─── 7. Claude config directory + startup ──────────────────
+# ─── 7. Install Zsh + plugins ──────────────────────────────
+$zshExe = "C:\Program Files\Git\usr\bin\zsh.exe"
+if (Test-Path $zshExe) {
+    Info "Zsh already installed"
+} else {
+    Info "Installing Zsh for Git..."
+    try {
+        # Download Zsh MSYS2 package
+        $zshUrl = "https://mirror.msys2.org/msys/x86_64/zsh-5.9-5-x86_64.pkg.tar.zst"
+        $zshZst = Join-Path $env:TEMP "zsh.pkg.tar.zst"
+        $zshTar = Join-Path $env:TEMP "zsh.pkg.tar"
+        $gitDir = "C:\Program Files\Git"
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $zshUrl -OutFile $zshZst -UseBasicParsing
+
+        # Decompress .zst using Python (pip install zstandard)
+        $hasPython = $null -ne (Get-Command python -ErrorAction SilentlyContinue)
+        if ($hasPython) {
+            python -m pip install --quiet zstandard 2>$null
+            $pyScript = @"
+import zstandard
+with open(r'$zshZst', 'rb') as f:
+    data = zstandard.ZstdDecompressor().decompress(f.read(), max_output_size=50*1024*1024)
+with open(r'$zshTar', 'wb') as o:
+    o.write(data)
+"@
+            python -c $pyScript 2>$null
+        }
+
+        if (-not (Test-Path $zshTar)) {
+            # Fallback: try native tar if it supports zstd
+            tar --zstd -xf $zshZst -C $gitDir 2>$null
+            if ($?) {
+                Info "Zsh installed (native tar)"
+            } else {
+                Warn "Could not decompress .zst — install Python or zstd tool"
+            }
+        } else {
+            # Extract tar into Git directory (needs admin for Program Files)
+            if ($isAdmin) {
+                tar -xf $zshTar -C $gitDir 2>$null
+            } else {
+                # Elevate for extraction
+                Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"tar -xf '$zshTar' -C '$gitDir'`""
+            }
+
+            if (Test-Path $zshExe) {
+                Info "Zsh installed: $((& $zshExe --version 2>$null) -join ' ')"
+            } else {
+                Warn "Zsh extraction may have failed. Re-run as Admin."
+            }
+        }
+
+        # Cleanup
+        Remove-Item $zshZst -Force -ErrorAction SilentlyContinue
+        Remove-Item $zshTar -Force -ErrorAction SilentlyContinue
+    } catch {
+        Warn "Zsh install failed: $_"
+    }
+}
+
+# Install Zsh plugins
+$zshPluginDir = Join-Path $env:USERPROFILE ".zsh\plugins"
+if (-not (Test-Path $zshPluginDir)) {
+    New-Item -ItemType Directory -Path $zshPluginDir -Force | Out-Null
+}
+
+$git = Get-Command git -ErrorAction SilentlyContinue
+if ($git) {
+    # zsh-autosuggestions
+    $autoDir = Join-Path $zshPluginDir "zsh-autosuggestions"
+    if (-not (Test-Path $autoDir)) {
+        Info "Installing zsh-autosuggestions..."
+        git clone --quiet https://github.com/zsh-users/zsh-autosuggestions $autoDir 2>$null
+        if (Test-Path $autoDir) { Info "zsh-autosuggestions installed" }
+        else { Warn "zsh-autosuggestions clone failed" }
+    } else { Info "zsh-autosuggestions already installed" }
+
+    # zsh-syntax-highlighting
+    $synDir = Join-Path $zshPluginDir "zsh-syntax-highlighting"
+    if (-not (Test-Path $synDir)) {
+        Info "Installing zsh-syntax-highlighting..."
+        git clone --quiet https://github.com/zsh-users/zsh-syntax-highlighting $synDir 2>$null
+        if (Test-Path $synDir) { Info "zsh-syntax-highlighting installed" }
+        else { Warn "zsh-syntax-highlighting clone failed" }
+    } else { Info "zsh-syntax-highlighting already installed" }
+} else {
+    Warn "git not found — cannot install Zsh plugins. Install Git first."
+}
+
+# Create .zshrc
+$zshrc = Join-Path $env:USERPROFILE ".zshrc"
+if (-not (Test-Path $zshrc) -or (Get-Content $zshrc -Raw) -notmatch "zsh-autosuggestions") {
+    $zshrcContent = @'
+# Zsh Core
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY APPEND_HISTORY
+setopt AUTO_CD AUTO_PUSHD PUSHD_IGNORE_DUPS
+
+# Completion
+autoload -Uz compinit && compinit
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+zstyle ':completion:*' list-colors ''
+
+# Prompt
+PROMPT='%F{green}InternetCodeSolutions%f@%F{cyan}MoneyMachine %F{yellow}%~%f$ '
+
+# Plugins
+source ~/.zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6B5D4F"
+source ~/.zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+# Key bindings
+bindkey '^[[A' up-line-or-search
+bindkey '^[[B' down-line-or-search
+bindkey '^[[1;5C' forward-word
+bindkey '^[[1;5D' backward-word
+bindkey '^[[H' beginning-of-line
+bindkey '^[[F' end-of-line
+bindkey '^[[3~' delete-char
+'@
+    [System.IO.File]::WriteAllText($zshrc, $zshrcContent, (New-Object System.Text.UTF8Encoding $false))
+    Info "Created .zshrc with autosuggestions + syntax highlighting"
+} else {
+    Info ".zshrc already configured"
+}
+
+# ─── 8. Claude config directory + startup ──────────────────
 $claudeDir = Join-Path $env:USERPROFILE ".claude"
 if (-not (Test-Path $claudeDir)) {
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
@@ -311,11 +443,11 @@ if ($wtSettingsDir) {
         "list":
         [
             {
-                "commandline": "\"C:\\Program Files\\Git\\bin\\bash.exe\" --login -i",
+                "commandline": "\"C:\\Program Files\\Git\\usr\\bin\\zsh.exe\" --login -i",
                 "guid": "{a1b2c3d4-e5f6-7890-abcd-ef1234567890}",
                 "hidden": false,
                 "icon": "C:\\Program Files\\Git\\mingw64\\share\\git\\git-for-windows.ico",
-                "name": "Git Bash",
+                "name": "Zsh",
                 "startingDirectory": "%USERPROFILE%"
             },
             {
@@ -374,7 +506,7 @@ if ($wtSettingsDir) {
     [System.IO.File]::WriteAllText($wtSettingsPath, $wtSettings, (New-Object System.Text.UTF8Encoding $false))
     Info "Windows Terminal configured:"
     Info "  - Win + ``  = Quake dropdown console"
-    Info "  - Default profile: Git Bash"
+    Info "  - Default profile: Zsh"
     Info "  - Color scheme: Desert Storm"
     Info "  - Font: CaskaydiaCove NFM"
     Info "  - Claude Code profile added"
@@ -387,7 +519,7 @@ Info "SETUP COMPLETE!"
 Write-Host ""
 Write-Host "  What's ready:" -ForegroundColor White
 Write-Host "    - Win + ``  = Quake dropdown console" -ForegroundColor Gray
-Write-Host "    - Git Bash as default shell" -ForegroundColor Gray
+Write-Host "    - Zsh as default shell (autosuggestions + syntax highlighting)" -ForegroundColor Gray
 Write-Host "    - Desert Storm theme + Nerd Font" -ForegroundColor Gray
 Write-Host "    - Claude Code profile in terminal" -ForegroundColor Gray
 Write-Host ""
