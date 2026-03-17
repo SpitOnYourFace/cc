@@ -525,6 +525,17 @@ if ($wtSettingsDir) {
     Info "  - Font: CaskaydiaCove NFM"
     Info "  - Claude Code profile added"
 
+    # Guaranteed startup on boot (startOnUserLogin doesn't work on all WT versions)
+    $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+    $startupBat = Join-Path $startupDir "windows-terminal-quake.bat"
+    if (-not (Test-Path $startupBat)) {
+        @"
+@echo off
+start "" wt.exe --windowingBehavior useMinimized
+"@ | Out-File -FilePath $startupBat -Encoding ASCII
+        Info "Added WT to Windows startup (minimized, no window)"
+    }
+
     # Launch WT in background so Win+` works immediately (no reboot needed)
     $wtProcess = Get-Process WindowsTerminal -ErrorAction SilentlyContinue
     if (-not $wtProcess) {
